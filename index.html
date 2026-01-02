@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>五子棋</title>
+</head>
+<body style="background: white; text-align: center; padding: 20px; font-family: sans-serif; margin: 0;">
+    <h2 style="margin: 0 0 15px 0;">智能五子棋</h2>
+    
+    <div style="margin-bottom: 15px;">
+        <button onclick="startGame()" style="padding: 10px 20px; margin: 0 3px; cursor: pointer; background: #3498db; color: white; border: none; border-radius: 6px; font-weight: bold;">开始游戏</button>
+        <button onclick="restartGame()" style="padding: 10px 20px; margin: 0 3px; cursor: pointer; background: #2ecc71; color: white; border: none; border-radius: 6px; font-weight: bold;">重新开始</button>
+        <button onclick="giveUp()" style="padding: 10px 20px; margin: 0 3px; cursor: pointer; background: #e74c3c; color: white; border: none; border-radius: 6px; font-weight: bold;">认输</button>
+    </div>
+    
+    <!-- 容器背景：淡蓝色 #c6e2ff -->
+    <div style="display: inline-block; border: 3px solid #333; background: #c6e2ff; padding: 0;">
+        <!-- Canvas 保持原来的 #f0f8ff 原始颜色，不做修改 -->
+        <canvas id="board" width="510" height="510" style="background: #f0f8ff; cursor: pointer;"></canvas>
+    </div>
+    
+    <br><br>
+    
+    <div style="margin: 10px 0;">
+        <span style="font-weight: bold;">AI难度:</span>
+        <button onclick="setLevel(1)" style="padding: 5px 10px; margin: 0 2px; cursor: pointer; background: #95a5a6; color: white; border: none; border-radius: 4px;">简单</button>
+        <button onclick="setLevel(2)" style="padding: 5px 10px; margin: 0 2px; cursor: pointer; background: #95a5a6; color: white; border: none; border-radius: 4px;">中等</button>
+        <button onclick="setLevel(3)" style="padding: 5px 10px; margin: 0 2px; cursor: pointer; background: #95a5a6; color: white; border: none; border-radius: 4px; font-weight: bold;">困难</button>
+        <button onclick="setLevel(4)" style="padding: 5px 10px; margin: 0 2px; cursor: pointer; background: #95a5a6; color: white; border: none; border-radius: 4px;">大师</button>
+    </div>
+    
+    <div id="status" style="font-weight: bold; color: #333; margin-top: 10px;">点击"开始游戏"</div>
+    
+    <div id="overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 999;"></div>
+    <div id="winPopup" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border: 4px solid #27ae60; border-radius: 15px; padding: 30px 50px; font-size: 28px; font-weight: bold; color: #27ae60; box-shadow: 0 0 30px rgba(0,0,0,0.5); z-index: 1000; text-align: center;">
+        <div id="winText"></div>
+        <button onclick="closePopup()" style="margin-top: 20px; padding: 10px 25px; font-size: 18px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer;">确定</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('board');
+        const ctx = canvas.getContext('2d');
+        const BOARD_SIZE = 15;
+        const CELL_SIZE = 33;
+        const OFFSET = 15;
+        
+        let board = [];
+        let gameActive = false;
+        let currentPlayer = 1;
+        let aiLevel = 3;
+        
+        // 弹窗控制
+        function showPopup(message) {
+            document.getElementById('winText').textContent = message;
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('winPopup').style.display = 'block';
+        }
+        
+        function closePopup() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('winPopup').style.display = 'none';
+        }
+        
+        // 绘制棋盘 - 全部使用原版代码
+        function drawBoard() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 背景 - 使用淡蓝白（Preview 能看见的原始颜色）
+            ctx.fillStyle = '#f0f8ff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 网格 - 黑色，3px粗
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                const pos = OFFSET + i * CELL_SIZE;
+                ctx.moveTo(OFFSET, pos);
+                ctx.lineTo(OFFSET + (BOARD_SIZE - 1) * CELL_SIZE, pos);
+                ctx.moveTo(pos, OFFSET);
+                ctx.lineTo(pos, OFFSET + (BOARD_SIZE - 1) * CELL_SIZE);
+            }
+            ctx.stroke();
+            
+            // 星位
+            ctx.fillStyle = '#000000';
+            [[3,3],[3,11],[11,3],[11,11],[7,7]].forEach(([r, c]) => {
+                const x = OFFSET + c * CELL_SIZE;
+                const y = OFFSET + r * CELL_SIZE;
+                ctx.beginPath();
+                ctx.arc(x, y, 7, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        // 画棋子 - 原版代码
+        function drawPieces() {
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    const piece = board[i][j];
+                    if (piece !== 0) {
+                        const x = OFFSET + j * CELL_SIZE;
+                        const y = OFFSET + i * CELL_SIZE;
+                        
+                        ctx.beginPath();
+                        ctx.arc(x, y, 14, 0, Math.PI * 2);
+                        ctx.fillStyle = (piece === 1) ? '#c0392b' : '#000000';
+                        ctx.fill();
+                        
+                        ctx.strokeStyle = '#333333';
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+        
+        // 检查胜利
+        function checkWin(board, player) {
+            const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] !== player) continue;
+                    for (const [dx, dy] of dirs) {
+                        let count = 1;
+                        for (let k = 1; k < 5; k++) {
+                            const ni = i + dx * k, nj = j + dy * k;
+                            if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE && board[ni][nj] === player) count++;
+                            else break;
+                        }
+                        if (count >= 5) return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // 工具函数
+        function isBoardFull(board) {
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] === 0) return false;
+                }
+            }
+            return true;
+        }
+        
+        function getRandomEmptyCell(board) {
+            const empty = [];
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] === 0) empty.push([i, j]);
+                }
+            }
+            if (empty.length === 0) return null;
+            return empty[Math.floor(Math.random() * empty.length)];
+        }
+        
+        function getFirstMove(board) {
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] !== 0) return null;
+                }
+            }
+            return [7, 7];
+        }
+        
+        function findWinningMove(board, player) {
+            const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] !== 0) continue;
+                    board[i][j] = player;
+                    let win = false;
+                    for (const [dx, dy] of dirs) {
+                        let count = 1;
+                        for (let k = 1; k < 5; k++) {
+                            const ni = i + dx * k, nj = j + dy * k;
+                            if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE && board[ni][nj] === player) count++;
+                            else break;
+                        }
+                        if (count >= 5) { win = true; break; }
+                    }
+                    board[i][j] = 0;
+                    if (win) return [i, j];
+                }
+            }
+            return null;
+        }
+        
+        function evaluateLine(board, row, col, dx, dy, player) {
+            let count = 1;
+            let openEnds = 0;
+            
+            for (let i = 1; i < 5; i++) {
+                const nr = row + dx * i, nc = col + dy * i;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                    if (board[nr][nc] === player) count++;
+                    else if (board[nr][nc] === 0) { openEnds++; break; }
+                    else break;
+                } else break;
+            }
+            
+            for (let i = 1; i < 5; i++) {
+                const nr = row - dx * i, nc = col - dy * i;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                    if (board[nr][nc] === player) count++;
+                    else if (board[nr][nc] === 0) { openEnds++; break; }
+                    else break;
+                } else break;
+            }
+            
+            if (count >= 5) return 1000000;
+            if (count === 4) return openEnds === 2 ? 100000 : 5000;
+            if (count === 3) return openEnds === 2 ? 1000 : 100;
+            if (count === 2 && openEnds >= 2) return 50;
+            return 0;
+        }
+        
+        // AI评分
+        function moveScore(board, row, col, player) {
+            let score = 0;
+            const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+            
+            for (const [dx, dy] of dirs) {
+                score += evaluateLine(board, row, col, dx, dy, player);
+                score += evaluateLine(board, row, col, dx, dy, 3 - player) * 1.5;
+            }
+            
+            const centerX = 7, centerY = 7;
+            const dist = Math.abs(row - centerX) + Math.abs(col - centerY);
+            score += Math.max(0, 20 - dist) * 2;
+            
+            return score;
+        }
+        
+        function generateAllMoves(board, player) {
+            const moves = [];
+            const used = new Set();
+            const directions = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+            
+            let hasPiece = false;
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] !== 0) { hasPiece = true; break; }
+                }
+                if (hasPiece) break;
+            }
+            
+            if (!hasPiece) return [{ row: 7, col: 7, score: 0 }];
+            
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    if (board[i][j] !== 0) continue;
+                    let near = false;
+                    for (const [dx, dy] of directions) {
+                        const ni = i + dx, nj = j + dy;
+                        if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE && board[ni][nj] !== 0) {
+                            near = true; break;
+                        }
+                    }
+                    if (near) {
+                        const key = `${i},${j}`;
+                        if (!used.has(key)) {
+                            used.add(key);
+                            const score = moveScore(board, i, j, player);
+                            moves.push({ row: i, col: j, score });
+                        }
+                    }
+                }
+            }
+            
+            moves.sort((a, b) => b.score - a.score);
+            return moves;
+        }
+        
+        function minimax(board, depth, player, alpha, beta, isMaximizing) {
+            if (checkWin(board, 3 - player)) return isMaximizing ? -1000000 : 1000000;
+            if (checkWin(board, player)) return isMaximizing ? 1000000 : -1000000;
+            if (depth === 0 || isBoardFull(board)) {
+                let score = 0;
+                for (let i = 0; i < BOARD_SIZE; i++) {
+                    for (let j = 0; j < BOARD_SIZE; j++) {
+                        if (board[i][j] === 0) continue;
+                        const piece = board[i][j];
+                        const isMine = (piece === player);
+                        const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+                        for (const [dx, dy] of dirs) {
+                            const val = evaluateLine(board, i, j, dx, dy, piece);
+                            if (isMine) score += val;
+                            else score -= val * 1.1;
+                        }
+                    }
+                }
+                return score;
+            }
+            
+            const moves = generateAllMoves(board, player).slice(0, 10);
+            let bestValue = isMaximizing ? -Infinity : Infinity;
+            
+            for (const move of moves) {
+                board[move.row][move.col] = player;
+                const value = minimax(board, depth - 1, 3 - player, alpha, beta, !isMaximizing);
+                board[move.row][move.col] = 0;
+                
+                if (isMaximizing) {
+                    bestValue = Math.max(bestValue, value);
+                    alpha = Math.max(alpha, value);
+                } else {
+                    bestValue = Math.min(bestValue, value);
+                    beta = Math.min(beta, value);
+                }
+                
+                if (beta <= alpha) break;
+            }
+            
+            return bestValue;
+        }
+        
+        function minimaxRoot(board, depth, player, isMaximizing) {
+            const moves = generateAllMoves(board, player).slice(0, 15);
+            if (moves.length === 0) {
+                const empty = getRandomEmptyCell(board);
+                return empty || [7, 7];
+            }
+            
+            let bestMove = moves[0];
+            let bestValue = -Infinity;
+            
+            const used = new Set();
+            for (const move of moves) {
+                const key = `${move.row},${move.col}`;
+                if (used.has(key)) continue;
+                used.add(key);
+                
+                board[move.row][move.col] = player;
+                const value = minimax(board, depth - 1, 3 - player, -Infinity, Infinity, false);
+                board[move.row][move.col] = 0;
+                
+                if (value > bestValue) {
+                    bestValue = value;
+                    bestMove = move;
+                }
+            }
+            
+            return [bestMove.row, bestMove.col];
+        }
+        
+        // AI主函数
+        function aiEasy(board) {
+            const winMove = findWinningMove(board, 2);
+            if (winMove) return winMove;
+            const defendMove = findWinningMove(board, 1);
+            if (defendMove) return defendMove;
+            
+            const moves = generateAllMoves(board, 2);
+            if (moves.length > 0) {
+                moves.sort((a, b) => b.score - a.score);
+                const idx = Math.floor(Math.random() * Math.min(3, moves.length));
+                return [moves[idx].row, moves[idx].col];
+            }
+            return getRandomEmptyCell(board);
+        }
+        
+        function aiNormal(board) {
+            const winMove = findWinningMove(board, 2);
+            if (winMove) return winMove;
+            const defendMove = findWinningMove(board, 1);
+            if (defendMove) return defendMove;
+            
+            const moves = generateAllMoves(board, 2).slice(0, 8);
+            let bestMove = moves[0];
+            let bestScore = -Infinity;
+            
+            for (const move of moves) {
+                board[move.row][move.col] = 2;
+                const oppMoves = generateAllMoves(board, 1).slice(0, 4);
+                let maxOppScore = 0;
+                for (const oppMove of oppMoves) {
+                    board[oppMove.row][oppMove.col] = 1;
+                    let score = 0;
+                    const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+                    for (const [dx, dy] of dirs) {
+                        const val = evaluateLine(board, oppMove.row, oppMove.col, dx, dy, 1);
+                        score += val;
+                    }
+                    maxOppScore = Math.max(maxOppScore, score);
+                    board[oppMove.row][oppMove.col] = 0;
+                }
+                
+                let score = 0;
+                for (const [dx, dy] of dirs) {
+                    const val = evaluateLine(board, move.row, move.col, dx, dy, 2);
+                    score += val;
+                }
+                const totalScore = score - maxOppScore * 0.5;
+                
+                board[move.row][move.col] = 0;
+                
+                if (totalScore > bestScore) {
+                    bestScore = totalScore;
+                    bestMove = move;
+                }
+            }
+            
+            return [bestMove.row, bestMove.col];
+        }
+        
+        function aiHard(board) {
+            return minimaxRoot(board, 3, 2, true);
+        }
+        
+        function aiExpert(board) {
+            const firstMove = getFirstMove(board);
+            if (firstMove) return firstMove;
+            
+            const winMove = findWinningMove(board, 2);
+            if (winMove) return winMove;
+            const defendMove = findWinningMove(board, 1);
+            if (defendMove) return defendMove;
+            
+            const result = minimaxRoot(board, 4, 2, true);
+            
+            // 临时测试是否会让玩家赢
+            const [row, col] = result;
+            board[row][col] = 2;
+            if (findWinningMove(board, 1)) {
+                const moves = generateAllMoves(board, 2);
+                for (const move of moves) {
+                    if (move.row === row && move.col === col) continue;
+                    board[move.row][move.col] = 2;
+                    if (!findWinningMove(board, 1)) {
+                        board[move.row][move.col] = 0;
+                        board[row][col] = 0;
+                        return [move.row, move.col];
+                    }
+                    board[move.row][move.col] = 0;
+                }
+            }
+            board[row][col] = 0;
+            
+            return result;
+        }
+        
+        // 点击处理
+        canvas.onclick = function(e) {
+            if (!gameActive || currentPlayer !== 1) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            
+            const col = Math.round((x - OFFSET) / CELL_SIZE);
+            const row = Math.round((y - OFFSET) / CELL_SIZE);
+            
+            if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE && board[row][col] === 0) {
+                board[row][col] = 1;
+                drawBoard();
+                drawPieces();
+                
+                if (checkWin(board, 1)) {
+                    gameActive = false;
+                    showPopup('🎉 恭喜！您赢了！');
+                    document.getElementById('status').textContent = '游戏结束 - 您获胜！';
+                    return;
+                }
+                
+                if (isBoardFull(board)) {
+                    gameActive = false;
+                    showPopup('🤝 平局！');
+                    document.getElementById('status').textContent = '游戏结束 - 平局！';
+                    return;
+                }
+                
+                currentPlayer = 2;
+                document.getElementById('status').textContent = '电脑思考中...';
+                
+                setTimeout(() => {
+                    let aiMove;
+                    const startTime = Date.now();
+                    
+                    switch(aiLevel) {
+                        case 1: aiMove = aiEasy(board); break;
+                        case 2: aiMove = aiNormal(board); break;
+                        case 3: aiMove = aiHard(board); break;
+                        case 4: aiMove = aiExpert(board); break;
+                    }
+                    
+                    const thinkTime = Date.now() - startTime;
+                    console.log(`AI思考耗时: ${thinkTime}ms`);
+                    
+                    if (aiMove) {
+                        const [aiRow, aiCol] = aiMove;
+                        board[aiRow][aiCol] = 2;
+                        drawBoard();
+                        drawPieces();
+                        
+                        if (checkWin(board, 2)) {
+                            gameActive = false;
+                            showPopup('电脑赢了，再试一次！');
+                            document.getElementById('status').textContent = '游戏结束 - 电脑获胜！';
+                        } else if (isBoardFull(board)) {
+                            gameActive = false;
+                            showPopup('🤝 平局！');
+                            document.getElementById('status').textContent = '游戏结束 - 平局！';
+                        } else {
+                            currentPlayer = 1;
+                            document.getElementById('status').textContent = '您的回合';
+                        }
+                    } else {
+                        gameActive = false;
+                        showPopup('🤝 平局！');
+                        document.getElementById('status').textContent = '游戏结束 - 平局！';
+                    }
+                }, 50);
+            }
+        }
+        
+        function startGame() {
+            board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(0));
+            gameActive = true;
+            currentPlayer = 1;
+            drawBoard();
+            drawPieces();
+            document.getElementById('status').textContent = '游戏开始！点击棋盘落子';
+            closePopup();
+        }
+        
+        function restartGame() { startGame(); }
+        
+        function giveUp() {
+            if (gameActive) {
+                gameActive = false;
+                showPopup('您认输了！电脑获胜！');
+                document.getElementById('status').textContent = '游戏结束 - 您认输了';
+            }
+        }
+        
+        function setLevel(level) {
+            aiLevel = level;
+            const levels = ['', '简单', '中等', '困难', '大师'];
+            document.getElementById('status').textContent = '难度已设为：' + levels[level];
+        }
+        
+        window.onload = function() {
+            drawBoard();
+        };
+    </script>
+</body>
+</html>
